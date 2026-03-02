@@ -16,6 +16,7 @@ function App() {
       const data = JSON.parse(event.data)
       setTemperature(data.temp)
     }
+    
 
     // 網頁關閉時，把水管拔掉的好習慣
     return () => ws.close() 
