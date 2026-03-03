@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
-import { LogOut, Activity, Zap, Thermometer, Battery, ShieldCheck } from 'lucide-react';
+import { Activity, Zap, Thermometer, Battery, ShieldCheck } from 'lucide-react';
 import '../index.css';
 
 function MetricCard({ title, value, unit, icon: Icon, colorClass, isWarning }) {
@@ -44,7 +43,6 @@ function MetricCard({ title, value, unit, icon: Icon, colorClass, isWarning }) {
 }
 
 function Dashboard() {
-  const navigate = useNavigate();
   const [dataHistory, setDataHistory] = useState([]);
   const [currentData, setCurrentData] = useState({
     soc: 0, soh: 0, temp: 0, voltage: 0, current: 0, health: 'Unknown'
@@ -60,25 +58,39 @@ function Dashboard() {
     ws.onmessage = (event) => {
       const msg = JSON.parse(event.data);
       
-      if (msg.type === 'history') {
-        const formattedHistory = msg.data.map(d => ({
-          ...d,
-          time: new Date(d.timestamp * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second:'2-digit' })
-        }));
-        setDataHistory(formattedHistory);
-        if (formattedHistory.length > 0) {
-          setCurrentData(formattedHistory[formattedHistory.length - 1]);
-        }
-      } else if (msg.type === 'update') {
-        const newData = msg.data;
-        const formattedData = {
-          ...newData,
-          time: new Date(newData.timestamp * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second:'2-digit' })
+      if (msg.type === 'update') {
+        const batteries = msg.data;
+        if (!batteries || batteries.length === 0) return;
+        
+        // Calculate system averages
+        let avgSoc = 0, avgSoh = 0, avgTemp = 0, avgVoltage = 0, avgCurrent = 0;
+        let systemHealth = 'Good';
+
+        batteries.forEach(b => {
+          avgSoc += b.soc;
+          avgSoh += b.soh;
+          avgTemp += b.temp;
+          avgVoltage += b.voltage;
+          avgCurrent += b.current;
+
+          if (b.health === 'Critical') systemHealth = 'Critical';
+          else if (b.health === 'Warning' && systemHealth !== 'Critical') systemHealth = 'Warning';
+        });
+
+        const num = batteries.length;
+        const avgData = {
+          soc: (avgSoc / num).toFixed(1),
+          soh: (avgSoh / num).toFixed(1),
+          temp: (avgTemp / num).toFixed(1),
+          voltage: (avgVoltage / num).toFixed(1),
+          current: (avgCurrent / num).toFixed(1),
+          health: systemHealth,
+          time: new Date(batteries[0].timestamp * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second:'2-digit' })
         };
         
-        setCurrentData(formattedData);
+        setCurrentData(avgData);
         setDataHistory(prev => {
-          const newHistory = [...prev, formattedData];
+          const newHistory = [...prev, avgData];
           if (newHistory.length > 50) newHistory.shift();
           return newHistory;
         });
@@ -88,42 +100,19 @@ function Dashboard() {
     return () => ws.close();
   }, []);
 
-  const handleLogout = () => {
-    navigate('/login');
-  };
-
-  const isTempHigh = currentData.temp > 45;
-  const isSocLow = currentData.soc < 20;
+  const isTempHigh = parseFloat(currentData.temp) > 45;
+  const isSocLow = parseFloat(currentData.soc) < 20;
 
   return (
-    <div style={{ minHeight: '100vh', padding: '32px', maxWidth: '1440px', margin: '0 auto' }}>
+    <div className="animate-fade-in">
       {/* Header */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '40px' }} className="animate-fade-in">
-        <div>
-          <h1 className="text-gradient" style={{ margin: '0 0 8px 0', fontSize: '32px' }}>
-            Energy Management Dashboard
-          </h1>
-          <p style={{ color: 'var(--text-secondary)', margin: 0 }}>
-            Live Battery Status & Analytics
-          </p>
-        </div>
-        <button onClick={handleLogout} style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: '8px',
-          padding: '12px 24px',
-          borderRadius: '12px',
-          background: 'rgba(239, 68, 68, 0.1)',
-          color: 'var(--danger)',
-          fontWeight: '600',
-          transition: 'background 0.2s'
-        }}
-        onMouseOver={(e) => e.currentTarget.style.background = 'rgba(239, 68, 68, 0.2)'}
-        onMouseOut={(e) => e.currentTarget.style.background = 'rgba(239, 68, 68, 0.1)'}
-        >
-          <LogOut size={20} />
-          Logout
-        </button>
+      <div style={{ marginBottom: '40px' }}>
+        <h1 className="text-gradient" style={{ margin: '0 0 8px 0', fontSize: '32px' }}>
+          System Overview
+        </h1>
+        <p style={{ color: 'var(--text-secondary)', margin: 0 }}>
+          Aggregated status of all 16 battery units
+        </p>
       </div>
 
       {/* Metrics Grid */}
@@ -134,7 +123,7 @@ function Dashboard() {
         marginBottom: '40px' 
       }}>
         <MetricCard 
-          title="State of Charge (SOC)" 
+          title="Avg State of Charge (SOC)" 
           value={currentData.soc} 
           unit="%" 
           icon={Battery} 
@@ -142,21 +131,21 @@ function Dashboard() {
           isWarning={isSocLow}
         />
         <MetricCard 
-          title="State of Health (SOH)" 
+          title="Avg State of Health (SOH)" 
           value={currentData.soh} 
           unit="%" 
           icon={ShieldCheck} 
           colorClass="accent-primary"
         />
         <MetricCard 
-          title="Voltage" 
+          title="Avg Voltage" 
           value={currentData.voltage} 
           unit="V" 
           icon={Zap} 
           colorClass="warning"
         />
         <MetricCard 
-          title="Temperature" 
+          title="Avg Temperature" 
           value={currentData.temp} 
           unit="°C" 
           icon={Thermometer} 
@@ -164,14 +153,14 @@ function Dashboard() {
           isWarning={isTempHigh}
         />
         <MetricCard 
-          title="Current" 
+          title="Avg Current" 
           value={currentData.current} 
           unit="A" 
           icon={Activity} 
           colorClass="text-primary"
         />
         <MetricCard 
-          title="Overall Health" 
+          title="System Health" 
           value={currentData.health} 
           unit="" 
           icon={Activity} 
@@ -181,8 +170,8 @@ function Dashboard() {
       </div>
 
       {/* Charts Area */}
-      <div className="glass animate-fade-in" style={{ padding: '32px', borderRadius: '24px' }}>
-        <h2 style={{ margin: '0 0 24px 0', fontSize: '20px', fontWeight: '600' }}>Live Performance Overview</h2>
+      <div className="glass" style={{ padding: '32px', borderRadius: '24px' }}>
+        <h2 style={{ margin: '0 0 24px 0', fontSize: '20px', fontWeight: '600' }}>System Averages Trend</h2>
         <div style={{ height: '400px', width: '100%' }}>
           <ResponsiveContainer>
             <LineChart data={dataHistory} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
@@ -195,9 +184,9 @@ function Dashboard() {
                 itemStyle={{ color: 'var(--text-primary)' }}
               />
               <Legend />
-              <Line yAxisId="left" type="monotone" dataKey="soc" name="SOC (%)" stroke="var(--success)" strokeWidth={3} dot={false} activeDot={{ r: 8 }} />
-              <Line yAxisId="right" type="monotone" dataKey="temp" name="Temperature (°C)" stroke="var(--danger)" strokeWidth={3} dot={false} />
-              <Line yAxisId="left" type="monotone" dataKey="voltage" name="Voltage (V)" stroke="var(--warning)" strokeWidth={3} dot={false} />
+              <Line yAxisId="left" type="monotone" dataKey="soc" name="Avg SOC (%)" stroke="var(--success)" strokeWidth={3} dot={false} activeDot={{ r: 8 }} />
+              <Line yAxisId="right" type="monotone" dataKey="temp" name="Avg Temp (°C)" stroke="var(--danger)" strokeWidth={3} dot={false} />
+              <Line yAxisId="left" type="monotone" dataKey="voltage" name="Avg Voltage (V)" stroke="var(--warning)" strokeWidth={3} dot={false} />
             </LineChart>
           </ResponsiveContainer>
         </div>
@@ -207,3 +196,4 @@ function Dashboard() {
 }
 
 export default Dashboard;
+
